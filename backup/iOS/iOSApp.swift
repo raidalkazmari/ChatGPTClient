@@ -23,7 +23,7 @@ struct BrowserScreen: View {
             HStack(spacing: 12) {
                 Image("BrandLogo").resizable().scaledToFit().frame(width: 72, height: 38).accessibilityLabel("AECGPT ABOFAHAD")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("AECGPT").font(.headline)
+                    Text("AECGPT Backup").font(.headline)
                     Text(browser.status).font(.caption).foregroundColor(.secondary)
                 }
                 Spacer()
@@ -59,11 +59,12 @@ struct BrowserScreen: View {
                         Text("سجّل دخولك إلى chatgpt.com داخل هذا المتصفح. افتح AECGPT في الساعة، ثم أرسل سؤالك أو صورتك من الجوال.")
                         Text("تظهر العناوين وترقيم الإجابات والجداول والصور القابلة للنقل على الساعة. اسحب للقراءة، واضغط الصورة لتكبيرها. لا تقفز الصفحة عند وصول تحديث. تبقى آخر محادثة محفوظة عند إغلاق التطبيق، وتصل الردود الجديدة عند عودتك إليه.")
                         Text("جلسة الموقع تبقى على الجوال فقط. الساعة لا تستقبل كلمة المرور أو ملفات تعريف الارتباط. زر الإيقاف يمسح العرض المنقول، ولا يخرجك من ChatGPT.")
-                        Text("إذا تعثر دخول Google، استخدم طريقة دخول أخرى متاحة لحسابك في صفحة ChatGPT. تسجيل الدخول في Safari لا ينقل الجلسة تلقائيًا لهذا التطبيق. قد تمنع بعض الصور المحمية النقل؛ تظهر رسالة بجانبها. الرسوم والمعادلات المعقدة قد تحتاج مراجعة الآيفون.")
+                        Text("إذا تعثر دخول Google، استخدم طريقة دخول أخرى متاحة لحسابك في صفحة ChatGPT. تسجيل الدخول في Safari لا ينقل الجلسة تلقائيًا لهذا التطبيق. الصور المحمية قد لا تنتقل؛ وتظهر مرفقات PDF كبطاقة باسم الملف بينما تبقى قراءة الصفحات على الآيفون. الرسوم والمعادلات المعقدة قد تحتاج مراجعة الآيفون.")
+                        Text("في نافذة التصوير التي يعرضها iOS، اختر الفلاش Off من رمز البرق بدل Auto. التطبيق لا يستطيع كتم صوت غالق الكاميرا الذي يتحكم به iOS.").font(.footnote).foregroundColor(.secondary)
                         Divider()
                         Text("تم التطوير بواسطة ابو فهد").font(.headline)
                         Link("لتواصل INFO@ABOFAHAD.NET", destination: URL(string: "mailto:INFO@ABOFAHAD.NET")!)
-                        Text("AECGPT · 1.1 (4)").font(.caption).foregroundColor(.secondary)
+                        Text("AECGPT Backup · 1.2 (5)").font(.caption).foregroundColor(.secondary)
                         Text("ليس تطبيقًا رسميًا من OpenAI. لا يستخدم مفتاح API. حدود حسابك في الموقع تبقى كما هي.").foregroundColor(.secondary)
                     }.padding(24)
                 }.navigationTitle("طريقة الاستخدام").toolbar { Button("تم") { showHelp = false } }
@@ -329,15 +330,35 @@ final class MirrorBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
       };
       const blocksFor = root => {
         const blocks=[];
-        const add=(type,text,extra={})=>{if(text.trim()) blocks.push({type,text:text.trim(),...extra});};
+        const direction=value=>{
+          const s=String(value||'');let rtl=-1,ltr=-1;
+          for(let i=0;i<s.length;i++){
+            const c=s.charCodeAt(i);
+            if(rtl<0&&((c>=0x0600&&c<=0x08ff)||(c>=0xfb50&&c<=0xfdff)||(c>=0xfe70&&c<=0xfeff)))rtl=i;
+            if(ltr<0&&((c>=65&&c<=90)||(c>=97&&c<=122)))ltr=i;
+          }
+          return rtl>=0&&(ltr<0||rtl<ltr)?'rtl':'ltr';
+        };
+        const add=(type,text,extra={})=>{if(text.trim()) blocks.push({type,text:text.trim(),direction:extra.direction||direction(text),...extra});};
         const walk=(node,depth=0)=>{
           if(node.nodeType===3){add('text',node.textContent||'');return;}
           const tag=node.tagName;
+          if(/(?:file|document).*attachment|attachment.*(?:file|document)/i.test(node.getAttribute('data-testid')||'')){
+            const label=(node.getAttribute('aria-label')||node.innerText||node.textContent||'').trim();
+            if(label)add('attachment',label,{format:/\.pdf(?:$|\s)/i.test(label)?'pdf':'file'});return;
+          }
           if(['BUTTON','SCRIPT','STYLE','NAV'].includes(tag)) return;
           if(tag==='IMG'){
             const src=node.currentSrc||node.src||'';
             const id='img-'+hash(src); picture(node,id);
-            blocks.push({type:'image',text:node.alt||'صورة مرفقة',imageID:id,unavailable:imageStates.get(id)==='unavailable'});return;
+            blocks.push({type:'image',text:node.alt||'صورة مرفقة',imageID:id,unavailable:imageStates.get(id)==='unavailable',direction:'ltr'});return;
+          }
+          if(tag==='A'){
+            const href=node.getAttribute('href')||'',label=(node.innerText||node.textContent||'').trim();
+            const ext=(href.match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i)||[])[1]?.toLowerCase();
+            if(['pdf','doc','docx','ppt','pptx','xls','xlsx','txt','rtf'].includes(ext)||/attachment/i.test(node.getAttribute('data-testid')||'')){
+              add('attachment',label||'ملف مرفق',{format:ext==='pdf'?'pdf':'file'});return;
+            }
           }
           if(tag==='OL'||tag==='UL'){
             let number=Number(node.getAttribute('start'))||1;

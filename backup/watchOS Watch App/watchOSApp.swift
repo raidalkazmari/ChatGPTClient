@@ -18,6 +18,8 @@ struct MirrorBlock: Codable {
     var rows: [[String]]?
     var imageID: String?
     var unavailable: Bool?
+    var direction: String?
+    var format: String?
 }
 struct MirrorTurn: Codable, Identifiable {
     var id: String
@@ -128,15 +130,33 @@ struct WatchMirrorScreen: View {
                 }.padding(.horizontal, 4).padding(.bottom, 8)
             }
         }.background(Color.black).ignoresSafeArea(edges: .bottom)
-        .accessibilityIdentifier("aecgpt-rich-chat-build-4")
+        .accessibilityIdentifier("aecgpt-rich-chat-backup-build-5")
     }
+}
+private extension LayoutDirection {
+    static func of(_ text: String) -> LayoutDirection {
+        let arabic = text.firstIndex(where: { $0.isArabicLetter })
+        let latin = text.firstIndex(where: { $0.isLatinLetter })
+        if let arabic = arabic, latin == nil || arabic < latin! { return .rightToLeft }
+        return .leftToRight
+    }
+}
+private extension Character {
+    var isArabicLetter: Bool { unicodeScalars.contains { (0x0600...0x08FF).contains(Int($0.value)) && CharacterSet.letters.contains($0) } }
+    var isLatinLetter: Bool { unicodeScalars.contains { CharacterSet.letters.contains($0) && $0.isASCII } }
 }
 struct RichBlockView: View {
     let block: MirrorBlock
     let image: UIImage?
     @State private var expanded = false
+    private var textDirection: LayoutDirection { LayoutDirection.of(block.text) }
     private func formatted(_ s: String) -> AttributedString {
         (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+    }
+    private func paragraph(_ value: AttributedString) -> some View {
+        Text(value).environment(\.layoutDirection, textDirection)
+            .multilineTextAlignment(textDirection == .rightToLeft ? .trailing : .leading)
+            .frame(maxWidth: .infinity, alignment: textDirection == .rightToLeft ? .trailing : .leading)
     }
     var body: some View {
         Group {
@@ -148,19 +168,29 @@ struct RichBlockView: View {
                 } else {
                     Label(block.unavailable == true ? "صورة محمية: راجع الآيفون" : "الصورة قيد النقل؛ أبقِ الجهازين قريبين", systemImage: "photo").font(.caption2).foregroundColor(.secondary)
                 }
-            case "heading": Text(formatted(block.text)).font(.system(size: 16, weight: .bold))
+            case "attachment":
+                Label {
+                    VStack(alignment: textDirection == .rightToLeft ? .trailing : .leading, spacing: 2) {
+                        Text(block.text).lineLimit(2).environment(\.layoutDirection, textDirection)
+                        Text(block.format == "pdf" ? "PDF · راجع الصفحات على الآيفون" : "مرفق · افتحه على الآيفون")
+                            .font(.system(size: 9)).foregroundColor(.secondary)
+                    }
+                } icon: { Image(systemName: block.format == "pdf" ? "doc.richtext" : "doc") }
+                    .font(.system(size: 11)).padding(6).background(Color.white.opacity(0.07))
+            case "heading": paragraph(formatted(block.text)).font(.system(size: 16, weight: .bold))
             case "list":
                 HStack(alignment: .top, spacing: 5) {
                     Text(block.marker ?? "•").font(.system(size: 14, weight: .semibold)).fixedSize()
-                    Text(formatted(block.text)).frame(maxWidth: .infinity, alignment: .leading)
-                }.padding(.leading, CGFloat(min(block.depth ?? 0, 4)) * 7)
+                    paragraph(formatted(block.text))
+                }.environment(\.layoutDirection, textDirection)
+                 .padding(.leading, CGFloat(min(block.depth ?? 0, 4)) * 7)
             case "table":
                 ScrollView(.horizontal) {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array((block.rows ?? []).enumerated()), id: \.offset) { index, row in
                             HStack(alignment: .top, spacing: 0) {
                                 ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                                    Text(formatted(cell)).font(.system(size: 12, weight: index == 0 ? .bold : .regular)).frame(width: 100, alignment: .leading).padding(6)
+                                    Text(formatted(cell)).environment(\.layoutDirection, LayoutDirection.of(cell)).multilineTextAlignment(.leading).font(.system(size: 12, weight: index == 0 ? .bold : .regular)).frame(width: 100, alignment: .leading).padding(6)
                                 }
                             }.background(index == 0 ? Color.white.opacity(0.14) : Color.white.opacity(0.04))
                             Divider()
@@ -168,9 +198,9 @@ struct RichBlockView: View {
                     }
                 }
             case "code", "formula":
-                ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).padding(6) }.background(Color.white.opacity(0.06))
-            case "quote": Text(formatted(block.text)).italic().padding(.leading, 6).overlay(alignment: .leading) { Rectangle().fill(Color.mint).frame(width: 2) }
-            default: Text(formatted(block.text))
+                ScrollView(.horizontal) { Text(block.text).font(.system(size: 12, design: .monospaced)).environment(\.layoutDirection, .leftToRight).padding(6) }.background(Color.white.opacity(0.06))
+            case "quote": paragraph(formatted(block.text)).italic().padding(.leading, 6).overlay(alignment: .leading) { Rectangle().fill(Color.mint).frame(width: 2) }
+            default: paragraph(formatted(block.text))
             }
         }.font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
     }
