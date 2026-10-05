@@ -56,7 +56,7 @@ struct BrowserScreen: View {
                     VStack(alignment: .leading, spacing: 20) {
                         Label("حسابك في الجوال، الرد في ساعتك", systemImage: "applewatch").font(.title2.bold())
                         Text("سجّل دخولك إلى chatgpt.com داخل هذا المتصفح. افتح AEC Mirror في الساعة، ثم أرسل سؤالك أو صورتك من الجوال.")
-                        Text("في الساعة اختر «نص» لقراءة المحادثة، أو «صفحة» لمشاهدة صورة الصفحة. قفل الجوال أو الخروج من المتصفح يوقف التحديث الحي.")
+                        Text("تظهر محادثة ChatGPT كنص قابل للتمرير على الساعة، ويحدّثها زر التحديث. عند الخروج من المتصفح تبقى آخر محادثة وصلت للساعة، ويُستأنف التحديث عند العودة للتطبيق.")
                         Text("جلسة الموقع تبقى على الجوال فقط. الساعة لا تستقبل كلمة المرور أو ملفات تعريف الارتباط. زر الإيقاف يمسح العرض المنقول، ولا يخرجك من ChatGPT.")
                         Text("دخول Google قد لا يعمل داخل المتصفح المدمج. هذا نموذج تجريبي؛ تسجيل الدخول ورفع الصور يحتاجان تجربة على جهاز حقيقي. تغيير صفحة ChatGPT قد يؤثر في استخراج النصوص. عرض الصفحة لا يعتمد على شكل الرسائل.")
                         Text("ليس تطبيقًا رسميًا من OpenAI. لا يستخدم مفتاح API. حدود حسابك في الموقع تبقى كما هي.").foregroundColor(.secondary)
@@ -91,15 +91,11 @@ final class MirrorBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
     let webView: WKWebView
     private let session: WCSession? = WCSession.isSupported() ? WCSession.default : nil
     private var active = true
-    private var timer: Timer?
-    private var snapshotInFlight = false
     private var generation = 0
     private var revision = 0
     private var lastText: [String: Any] = [:]
     private var safePage = false
     private var lastFingerprint = ""
-    private var lastJPEG: Data?
-    private var lastImageSent = Date.distantPast
 
     override init() {
         let config = WKWebViewConfiguration()
@@ -117,27 +113,23 @@ final class MirrorBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
         webView.backgroundColor = .black
         session?.delegate = self
         session?.activate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in self?.capturePage() }
         home()
     }
-    deinit { timer?.invalidate() }
     func home() { webView.load(URLRequest(url: URL(string: "https://chatgpt.com/")!)) }
     func setActive(_ value: Bool) {
         active = value
-        if !value { generation += 1; publishState(kind: "paused", title: "الجوال مقفل أو المتصفح بالخلفية") }
+        if !value { generation += 1; updateStatus() }
         else if syncEnabled { refresh() }
     }
     func toggleSync() {
         syncEnabled.toggle()
         generation += 1
         if syncEnabled { refresh() }
-        else { lastText = [:]; lastJPEG = nil; publishState(kind: "cleared", title: "المزامنة متوقفة") }
+        else { lastText = [:]; publishState(kind: "cleared", title: "المزامنة متوقفة") }
     }
     func refresh() {
         guard active, syncEnabled else { return }
         webView.evaluateJavaScript("window.__aecEmit && window.__aecEmit(true)")
-        lastJPEG = nil
-        capturePage()
     }
     private func updateStatus() {
         guard syncEnabled else { status = "المزامنة متوقفة"; return }
@@ -203,32 +195,8 @@ final class MirrorBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
         if fingerprint != lastFingerprint { lastFingerprint = fingerprint; transmit(next, context: true) }
         else { transmit(next, context: false) } // forced refresh/reconnect needs the current state
     }
-    private func capturePage() {
-        updateStatus()
-        guard active, syncEnabled, safePage, !loading, !snapshotInFlight,
-              webView.url?.host == "chatgpt.com", session?.isReachable == true,
-              webView.bounds.width > 0 else { return }
-        snapshotInFlight = true
-        let expectedGeneration = generation
-        let config = WKSnapshotConfiguration()
-        config.rect = webView.bounds
-        config.snapshotWidth = NSNumber(value: 280)
-        webView.takeSnapshot(with: config) { [weak self] image, _ in
-            guard let self = self else { return }
-            self.snapshotInFlight = false
-            guard self.active, self.syncEnabled, self.safePage, expectedGeneration == self.generation,
-                  let image = image else { return }
-            var jpeg = image.jpegData(compressionQuality: 0.55)
-            if (jpeg?.count ?? 0) > 42000 { jpeg = image.jpegData(compressionQuality: 0.2) }
-            guard let data = jpeg, data.count <= 42000 else { return }
-            if data == self.lastJPEG && Date().timeIntervalSince(self.lastImageSent) < 8 { return }
-            self.lastJPEG = data
-            self.lastImageSent = Date()
-            self.transmit(["kind": "page", "image": data], context: false)
-        }
-    }
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        loading = true; error = nil; safePage = false; generation += 1; lastJPEG = nil
+        loading = true; error = nil; safePage = false; generation += 1
         if active, syncEnabled { publishState(kind: "loading", title: "فتح الصفحة على الآيفون…") }
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -274,8 +242,7 @@ final class MirrorBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 if !self.syncEnabled { self.publishState(kind: "cleared", title: "المزامنة متوقفة") }
-                else if !self.active { self.publishState(kind: "paused", title: "افتح المتصفح على الآيفون") }
-                else { self.refresh() }
+                else if self.active { self.refresh() }
             }
         }
     }
