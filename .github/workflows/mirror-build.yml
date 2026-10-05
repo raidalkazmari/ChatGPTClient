@@ -1,0 +1,84 @@
+name: Build AEC Mirror iPhone and Watch
+on:
+  push:
+    branches: [aec-watch-browser]
+    paths: ['iOS/iOSApp.swift', 'watchOS Watch App/watchOSApp.swift', 'ChatGPT.xcodeproj/**', 'tests/**', '.github/workflows/mirror-build.yml']
+  pull_request:
+    paths: ['iOS/iOSApp.swift', 'watchOS Watch App/watchOSApp.swift', 'ChatGPT.xcodeproj/**', 'tests/**', '.github/workflows/mirror-build.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mirror-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify DOM extraction and privacy guards
+        run: node tests/extractor.test.cjs
+      - name: Prepare AEC icons
+        run: |
+          mkdir -p build
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          Path('build/logo.jpeg').write_bytes(base64.b64decode(Path('branding/aec-logo.b64').read_text()))
+          PY
+          sips --resampleWidth 880 build/logo.jpeg --out build/icon.png --setProperty format png
+          sips --padToHeightWidth 1024 1024 --padColor FFFFFF build/icon.png
+          python3 - <<'PY'
+          import json, shutil
+          from pathlib import Path
+          for target, platform in [('iOS', 'ios'), ('watchOS Watch App', 'watchos')]:
+              folder = Path(target) / 'Assets.xcassets/AppIcon.appiconset'
+              shutil.copyfile('build/icon.png', folder/'AECIcon.png')
+              (folder/'Contents.json').write_text(json.dumps({'images':[{'idiom':'universal','platform':platform,'size':'1024x1024','filename':'AECIcon.png'}],'info':{'author':'xcode','version':1}}))
+          PY
+      - name: Compile watchOS simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project ChatGPT.xcodeproj -scheme ChatGPTWatch -configuration Debug -destination 'generic/platform=watchOS Simulator' -derivedDataPath build/watch CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee build/watch.log
+      - name: Compile iPhone simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project ChatGPT.xcodeproj -scheme ChatGPTiPhoneWatch -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath build/phone CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee build/phone.log
+      - name: Archive iPhone with embedded Watch app
+        run: |
+          set -o pipefail
+          xcodebuild -project ChatGPT.xcodeproj -scheme ChatGPTiPhoneWatch -configuration Release -destination 'generic/platform=iOS' -archivePath build/AEC-Mirror.xcarchive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM= archive 2>&1 | tee build/archive.log
+      - name: Validate bundle pairing and package unsigned IPA
+        run: |
+          python3 - <<'PY'
+          import plistlib, shutil, subprocess
+          from pathlib import Path
+          apps = list(Path('build/AEC-Mirror.xcarchive/Products/Applications').glob('*.app'))
+          assert len(apps) == 1
+          phone = apps[0]
+          watches = list((phone/'Watch').glob('*.app'))
+          assert len(watches) == 1
+          watch = watches[0]
+          p = plistlib.loads((phone/'Info.plist').read_bytes())
+          w = plistlib.loads((watch/'Info.plist').read_bytes())
+          assert p.get('ITSWatchOnlyContainer') != True
+          assert p['CFBundleSupportedPlatforms'] == ['iPhoneOS']
+          assert w['CFBundleSupportedPlatforms'] == ['WatchOS']
+          assert w['WKCompanionAppBundleIdentifier'] == p['CFBundleIdentifier']
+          assert w['CFBundleIdentifier'].startswith(p['CFBundleIdentifier']+'.')
+          assert p['CFBundleDisplayName'] == w['CFBundleDisplayName'] == 'AEC Mirror'
+          payload = Path('build/ipa/Payload').resolve()
+          payload.mkdir(parents=True)
+          shutil.copytree(phone,payload/phone.name,symlinks=True)
+          subprocess.run(['ditto','-c','-k','--keepParent',str(payload),str(Path('build/AEC-Mirror-unsigned.ipa').resolve())],check=True)
+          print('Verified iPhone and Watch pairing. IPA is unsigned and requires device provisioning.')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AEC-Mirror-build
+          path: |
+            build/*.ipa
+            build/*.log
+          retention-days: 7
