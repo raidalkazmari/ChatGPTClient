@@ -247,6 +247,11 @@ final class MirrorBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { webView.reload() }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
+        // Permit HTTPS verification frames used by the site; the native bridge
+        // still accepts only chatgpt.com main-frame messages.
+        if action.targetFrame?.isMainFrame == false && url.scheme == "https" {
+            decisionHandler(.allow); return
+        }
         let host = url.host ?? ""
         let approved = host == "chatgpt.com" || host == "openai.com" || host.hasSuffix(".openai.com") || host == "accounts.google.com" || host == "appleid.apple.com"
         if url.scheme == "https" && approved { decisionHandler(.allow) }
