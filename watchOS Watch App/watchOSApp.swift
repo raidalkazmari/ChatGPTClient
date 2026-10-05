@@ -74,74 +74,58 @@ final class WatchMirror: NSObject, ObservableObject, WCSessionDelegate {
 
 struct WatchMirrorScreen: View {
     @ObservedObject var mirror: WatchMirror
-    @State private var pageMode = false
-    @State private var followLatest = true
     @State private var zoom = 1.0
+
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 5) {
-                Circle().fill(mirror.reachable ? Color.mint : .orange).frame(width: 5, height: 5)
-                Text(mirror.kind == "live" ? (mirror.streaming ? "يكتب الآن…" : "من الآيفون") : "AEC Mirror")
-                    .font(.caption2).foregroundColor(.secondary).lineLimit(1)
-                Spacer()
-                Button { mirror.refresh() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.plain).accessibilityLabel("تحديث من الآيفون")
-            }
-            HStack(spacing: 6) {
-                Button { pageMode = false } label: { Text("نص").frame(maxWidth: .infinity) }
-                    .tint(pageMode ? .gray : .mint)
-                Button { pageMode = true } label: { Text("صفحة").frame(maxWidth: .infinity) }
-                    .tint(pageMode ? .mint : .gray)
-            }.font(.caption).buttonStyle(.bordered)
-            if mirror.kind != "live" {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        Image(systemName: mirror.kind == "cleared" ? "pause.circle" : "iphone.and.arrow.forward").font(.largeTitle).foregroundColor(.mint)
-                        Text(mirror.title).font(.headline).multilineTextAlignment(.center)
-                        Text(mirror.kind == "waiting" ? "افتح متصفح AEC Mirror على الجوال. دخولك هناك فقط، ثم يظهر الرد هنا." : "افتح المتصفح على الجوال لمتابعة العرض.")
-                            .font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
-                    }.padding(.top, 12)
-                }
-            } else if pageMode {
-                if let image = mirror.image {
-                    GeometryReader { geometry in
-                        ScrollView([.horizontal, .vertical]) {
-                            Image(uiImage: image).resizable().scaledToFit().frame(width: geometry.size.width * zoom)
-                        }
+        GeometryReader { geometry in
+            ZStack {
+                Color.black
+                if mirror.kind == "live", let image = mirror.image {
+                    ScrollView([.horizontal, .vertical]) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: max(geometry.size.width, 1) * zoom)
+                            .frame(minHeight: geometry.size.height)
                     }
-                    HStack {
-                        Button { zoom = max(1, zoom - 0.5) } label: { Image(systemName: "minus.magnifyingglass") }
-                        Text("\(Int(zoom * 100))%").font(.caption2)
-                        Button { zoom = min(3, zoom + 0.5) } label: { Image(systemName: "plus.magnifyingglass") }
-                    }.buttonStyle(.plain)
+                    .focusable()
+                    .digitalCrownRotation(
+                        $zoom,
+                        from: 1.0,
+                        through: 3.0,
+                        by: 0.25,
+                        sensitivity: .low,
+                        isContinuous: false,
+                        isHapticFeedbackEnabled: true
+                    )
+                    .accessibilityLabel("مرآة مباشرة لشاشة الآيفون")
+                    .onTapGesture { mirror.refresh() }
                 } else {
-                    Spacer(); ProgressView("بانتظار صورة الصفحة…").font(.caption); Spacer()
-                }
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 12) {
-                            if mirror.messages.isEmpty {
-                                Text("افتح محادثة أو أرسل سؤالك من الجوال. إذا لم يظهر النص جرّب عرض «صفحة».").font(.caption).foregroundColor(.secondary)
-                            }
-                            ForEach(mirror.messages) { turn in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(turn.role == "user" ? "أنت" : "ChatGPT").font(.caption2.bold()).foregroundColor(turn.role == "user" ? .mint : .secondary)
-                                    Text(turn.text).font(.system(size: 15)).fixedSize(horizontal: false, vertical: true)
-                                }.padding(9).frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(turn.role == "user" ? Color.mint.opacity(0.10) : Color.white.opacity(0.06))
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                            Color.clear.frame(height: 1).id("latest")
+                    VStack(spacing: 8) {
+                        if mirror.kind == "live" {
+                            ProgressView()
+                            Text("جاري نقل الشاشة…").font(.caption)
+                        } else {
+                            Image(systemName: mirror.kind == "cleared" ? "pause.circle" : "iphone.and.arrow.forward")
+                                .font(.title2)
+                                .foregroundColor(.mint)
+                            Text(mirror.title).font(.caption).multilineTextAlignment(.center)
+                            Text("افتح AEC Mirror على الآيفون لإظهار الشاشة هنا.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                            Button { mirror.refresh() } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }.accessibilityLabel("تحديث من الآيفون")
                         }
                     }
-                    .onChange(of: mirror.lastUpdate) { _ in if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
-                    .onAppear { if followLatest { proxy.scrollTo("latest", anchor: .bottom) } }
+                    .padding()
                 }
-                Button { followLatest.toggle() } label: {
-                    Label(followLatest ? "متابعة الرد" : "قراءة السابق", systemImage: followLatest ? "arrow.down.to.line" : "book").font(.caption2)
-                }.buttonStyle(.plain).foregroundColor(.mint)
             }
-        }.padding(.horizontal, 4)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .background(Color.black)
+            .ignoresSafeArea()
+        }
+        .ignoresSafeArea()
     }
 }
