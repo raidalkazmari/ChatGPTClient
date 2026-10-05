@@ -45,7 +45,7 @@ final class WatchMirror: NSObject, ObservableObject, WCSessionDelegate {
               let timestamp = packet["sentAt"] as? Double else { return }
         if nextKind == "page" {
             guard timestamp >= lastImageTimestamp, timestamp >= lastTextTimestamp,
-                  kind == "live", let jpeg = packet["image"] as? Data, jpeg.count <= 42000 else { return }
+                  (kind == "live" || kind == "paused"), let jpeg = packet["image"] as? Data, jpeg.count <= 42000 else { return }
             lastImageTimestamp = timestamp; image = UIImage(data: jpeg)
             return
         }
@@ -57,7 +57,7 @@ final class WatchMirror: NSObject, ObservableObject, WCSessionDelegate {
         messages = (packet["messages"] as? [[String: String]] ?? []).enumerated().map {
             MirrorTurn(id: "\($0.offset)-\($0.element["id"] ?? "turn")", role: $0.element["role"] ?? "assistant", text: $0.element["text"] ?? "")
         }
-        if nextKind != "live" || changedPage { image = nil }
+        if nextKind != "paused" && (nextKind != "live" || changedPage) { image = nil }
         lastUpdate = Date(timeIntervalSince1970: timestamp)
     }
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
@@ -80,7 +80,7 @@ struct WatchMirrorScreen: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black
-                if mirror.kind == "live", let image = mirror.image {
+                if let image = mirror.image {
                     ScrollView([.horizontal, .vertical]) {
                         Image(uiImage: image)
                             .resizable()
