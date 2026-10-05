@@ -2,9 +2,9 @@ name: Build AEC Mirror iPhone and Watch
 on:
   push:
     branches: [aec-watch-browser]
-    paths: ['iOS/iOSApp.swift', 'watchOS Watch App/watchOSApp.swift', 'ChatGPT.xcodeproj/**', 'tests/**', '.github/workflows/mirror-build.yml']
+    paths: ['iOS/iOSApp.swift', 'watchOS Watch App/watchOSApp.swift', 'ChatGPT.xcodeproj/**', 'tests/**', 'branding/**', '.github/workflows/mirror-build.yml']
   pull_request:
-    paths: ['iOS/iOSApp.swift', 'watchOS Watch App/watchOSApp.swift', 'ChatGPT.xcodeproj/**', 'tests/**', '.github/workflows/mirror-build.yml']
+    paths: ['iOS/iOSApp.swift', 'watchOS Watch App/watchOSApp.swift', 'ChatGPT.xcodeproj/**', 'tests/**', 'branding/**', '.github/workflows/mirror-build.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,13 +22,7 @@ jobs:
       - name: Prepare AEC icons
         run: |
           mkdir -p build
-          python3 - <<'PY'
-          import base64
-          from pathlib import Path
-          Path('build/logo.jpeg').write_bytes(base64.b64decode(Path('branding/aec-logo.b64').read_text()))
-          PY
-          sips --resampleWidth 880 build/logo.jpeg --out build/icon.png --setProperty format png
-          sips --padToHeightWidth 1024 1024 --padColor FFFFFF build/icon.png
+          sips --resampleHeightWidth 1024 1024 branding/aecgpt-logo.png --out build/icon.png
           python3 - <<'PY'
           import json, shutil
           from pathlib import Path
@@ -36,6 +30,10 @@ jobs:
               folder = Path(target) / 'Assets.xcassets/AppIcon.appiconset'
               shutil.copyfile('build/icon.png', folder/'AECIcon.png')
               (folder/'Contents.json').write_text(json.dumps({'images':[{'idiom':'universal','platform':platform,'size':'1024x1024','filename':'AECIcon.png'}],'info':{'author':'xcode','version':1}}))
+          logo = Path('iOS/Assets.xcassets/BrandLogo.imageset')
+          logo.mkdir(parents=True, exist_ok=True)
+          shutil.copyfile('branding/aecgpt-logo.png', logo/'logo.png')
+          (logo/'Contents.json').write_text(json.dumps({'images':[{'idiom':'universal','filename':'logo.png'}],'info':{'author':'xcode','version':1}}))
           PY
       - name: Compile watchOS simulator
         run: |
@@ -67,7 +65,11 @@ jobs:
           assert w['CFBundleSupportedPlatforms'] == ['WatchOS']
           assert w['WKCompanionAppBundleIdentifier'] == p['CFBundleIdentifier']
           assert w['CFBundleIdentifier'].startswith(p['CFBundleIdentifier']+'.')
-          assert p['CFBundleDisplayName'] == w['CFBundleDisplayName'] == 'AEC Mirror'
+          assert p['CFBundleDisplayName'] == w['CFBundleDisplayName'] == 'AECGPT'
+          assert p['CFBundleVersion'] == w['CFBundleVersion'] == '4'
+          binary = (watch/w['CFBundleExecutable']).read_bytes()
+          assert b'aecgpt-rich-chat-build-4' in binary, 'Wrong Watch executable packaged'
+          assert b'_pageMode' not in binary, 'Legacy tab UI packaged'
           payload = Path('build/ipa/Payload').resolve()
           payload.mkdir(parents=True)
           shutil.copytree(phone,payload/phone.name,symlinks=True)
@@ -82,3 +84,4 @@ jobs:
             build/*.ipa
             build/*.log
           retention-days: 7
+
