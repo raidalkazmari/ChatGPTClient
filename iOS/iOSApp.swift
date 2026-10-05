@@ -293,115 +293,115 @@ final class MirrorBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
     func sessionDidDeactivate(_ session: WCSession) { session.activate() }
 
     static let extractor = #"""
-(() => {
-  if (location.hostname !== 'chatgpt.com' || window.__aecEmit) return;
-  let previous = '', queued = false;
-  const imageStates = new Map();
-  const hash = s => { let h=2166136261; for(let i=0;i<s.length;i++) h=Math.imul(h^s.charCodeAt(i),16777619); return (h>>>0).toString(16); };
-  const inline = n => {
-    if(n.nodeType===3) return n.textContent || '';
-    const tag=n.tagName;
-    if(['BUTTON','SCRIPT','STYLE','SVG','IMG'].includes(tag)) return '';
-    if(tag==='BR') return '\n';
-    if(n.classList?.contains('katex')) return n.querySelector('annotation')?.textContent || n.textContent || '';
-    const text=Array.from(n.childNodes||[]).map(inline).join('');
-    if(tag==='STRONG'||tag==='B') return '**'+text+'**';
-    if(tag==='EM'||tag==='I') return '*'+text+'*';
-    if(tag==='CODE') return '`'+text.replace(/`/g,'')+'`';
-    return text;
-  };
-  const picture = (img, id) => {
-    const src=img.currentSrc||img.src||'';
-    if(!src || !img.complete || !img.naturalWidth) return;
-    if(imageStates.has(id)) return;
-    imageStates.set(id,'pending');
-    try {
-      const canvas=document.createElement('canvas');
-      const scale=Math.min(1,960/Math.max(img.naturalWidth,img.naturalHeight));
-      canvas.width=Math.max(1,Math.round(img.naturalWidth*scale)); canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
-      const ctx=canvas.getContext('2d'); ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);
-      let data=canvas.toDataURL('image/jpeg',0.75).split(',')[1];
-      if(data.length>260000) data=canvas.toDataURL('image/jpeg',0.35).split(',')[1];
-      if(data.length>260000) throw new Error('image too large');
-      window.webkit.messageHandlers.aecMirror.postMessage({asset:id,data});
-      imageStates.set(id,'sent');
-    } catch (_) { imageStates.set(id,'unavailable'); }
-  };
-  const blocksFor = root => {
-    const blocks=[];
-    const add=(type,text,extra={})=>{if(text.trim()) blocks.push({type,text:text.trim(),...extra});};
-    const walk=(node,depth=0)=>{
-      if(node.nodeType===3){add('text',node.textContent||'');return;}
-      const tag=node.tagName;
-      if(['BUTTON','SCRIPT','STYLE','NAV'].includes(tag)) return;
-      if(tag==='IMG'){
-        const src=node.currentSrc||node.src||'';
-        const id='img-'+hash(src); picture(node,id);
-        blocks.push({type:'image',text:node.alt||'صورة مرفقة',imageID:id,unavailable:imageStates.get(id)==='unavailable'});return;
-      }
-      if(tag==='OL'||tag==='UL'){
-        let number=Number(node.getAttribute('start'))||1;
-        for(const li of Array.from(node.children||[]).filter(c=>c.tagName==='LI')){
-          if(li.hasAttribute('value')) number=Number(li.getAttribute('value'));
-          const prefix=tag==='OL'?`${number++}.`:'•';
-          const text=Array.from(li.childNodes).filter(c=>!['UL','OL'].includes(c.tagName)).map(inline).join('').trim();
-          add('list',text,{marker:prefix,depth:Math.min(depth,4)});
-          for(const child of Array.from(li.children||[])) if(['UL','OL'].includes(child.tagName)) walk(child,depth+1);
-          for(const img of li.querySelectorAll('img')) walk(img,depth);
-        }return;
-      }
-      if(tag==='TABLE'){
-        const rows=Array.from(node.querySelectorAll('tr')).map(row=>Array.from(row.querySelectorAll('th,td')).map(cell=>inline(cell).trim()));
-        blocks.push({type:'table',text:'',rows});return;
-      }
-      if(tag==='PRE'){add('code',node.textContent||'');return;}
-      if(node.classList?.contains('katex')){add('formula',node.querySelector('annotation')?.textContent||node.textContent||'');return;}
-      if(/^H[1-6]$/.test(tag)){add('heading',inline(node));return;}
-      if(tag==='P'||tag==='BLOCKQUOTE'){
-        add(tag==='BLOCKQUOTE'?'quote':'text',inline(node));
-        for(const img of node.querySelectorAll('img')) walk(img,depth);
-        return;
-      }
-      if(tag==='SVG'){add('text',node.getAttribute('aria-label')||'رسم توضيحي: افتحه على الآيفون لعرضه كاملًا');return;}
-      for(const child of Array.from(node.childNodes||[])) walk(child,depth);
-    };
-    walk(root);
-    return blocks;
-  };
-  window.__aecEmit = (force=false) => {
-    const safe=!/\/(auth|login|signup)(\/|$)/.test(location.pathname)&&!document.querySelector('input[type="password"],input[type="email"],input[autocomplete="one-time-code"]');
-    if(!safe) return;
-    if(force) imageStates.clear();
-    const nodes=Array.from(document.querySelectorAll('[data-message-author-role]'));
-    let remaining=38000, truncated=false;
-    const messages=[];
-    for(let i=nodes.length-1;i>=0;i--){
-      const node=nodes[i],role=node.getAttribute('data-message-author-role');
-      if(!['user','assistant'].includes(role)) continue;
-      const blocks=blocksFor(node);
-      if(!blocks.length) continue;
-      const item={id:node.getAttribute('data-message-id')||`turn-${i}`,role,blocks};
-      const size=new TextEncoder().encode(JSON.stringify(item)).length;
-      if(size>remaining){
-        truncated=true;
-        if(messages.length===0){
-          const kept=[]; for(const block of blocks){const n=new TextEncoder().encode(JSON.stringify(block)).length;if(n>remaining)break;kept.push(block);remaining-=n;}
-          if(kept.length) messages.unshift({...item,blocks:kept});
+    (() => {
+      if (location.hostname !== 'chatgpt.com' || window.__aecEmit) return;
+      let previous = '', queued = false;
+      const imageStates = new Map();
+      const hash = s => { let h=2166136261; for(let i=0;i<s.length;i++) h=Math.imul(h^s.charCodeAt(i),16777619); return (h>>>0).toString(16); };
+      const inline = n => {
+        if(n.nodeType===3) return n.textContent || '';
+        const tag=n.tagName;
+        if(['BUTTON','SCRIPT','STYLE','SVG','IMG'].includes(tag)) return '';
+        if(tag==='BR') return '\n';
+        if(n.classList?.contains('katex')) return n.querySelector('annotation')?.textContent || n.textContent || '';
+        const text=Array.from(n.childNodes||[]).map(inline).join('');
+        if(tag==='STRONG'||tag==='B') return '**'+text+'**';
+        if(tag==='EM'||tag==='I') return '*'+text+'*';
+        if(tag==='CODE') return '`'+text.replace(/`/g,'')+'`';
+        return text;
+      };
+      const picture = (img, id) => {
+        const src=img.currentSrc||img.src||'';
+        if(!src || !img.complete || !img.naturalWidth) return;
+        if(imageStates.has(id)) return;
+        imageStates.set(id,'pending');
+        try {
+          const canvas=document.createElement('canvas');
+          const scale=Math.min(1,960/Math.max(img.naturalWidth,img.naturalHeight));
+          canvas.width=Math.max(1,Math.round(img.naturalWidth*scale)); canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+          const ctx=canvas.getContext('2d'); ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);
+          let data=canvas.toDataURL('image/jpeg',0.75).split(',')[1];
+          if(data.length>260000) data=canvas.toDataURL('image/jpeg',0.35).split(',')[1];
+          if(data.length>260000) throw new Error('image too large');
+          window.webkit.messageHandlers.aecMirror.postMessage({asset:id,data});
+          imageStates.set(id,'sent');
+        } catch (_) { imageStates.set(id,'unavailable'); }
+      };
+      const blocksFor = root => {
+        const blocks=[];
+        const add=(type,text,extra={})=>{if(text.trim()) blocks.push({type,text:text.trim(),...extra});};
+        const walk=(node,depth=0)=>{
+          if(node.nodeType===3){add('text',node.textContent||'');return;}
+          const tag=node.tagName;
+          if(['BUTTON','SCRIPT','STYLE','NAV'].includes(tag)) return;
+          if(tag==='IMG'){
+            const src=node.currentSrc||node.src||'';
+            const id='img-'+hash(src); picture(node,id);
+            blocks.push({type:'image',text:node.alt||'صورة مرفقة',imageID:id,unavailable:imageStates.get(id)==='unavailable'});return;
+          }
+          if(tag==='OL'||tag==='UL'){
+            let number=Number(node.getAttribute('start'))||1;
+            for(const li of Array.from(node.children||[]).filter(c=>c.tagName==='LI')){
+              if(li.hasAttribute('value')) number=Number(li.getAttribute('value'));
+              const prefix=tag==='OL'?`${number++}.`:'•';
+              const text=Array.from(li.childNodes).filter(c=>!['UL','OL'].includes(c.tagName)).map(inline).join('').trim();
+              add('list',text,{marker:prefix,depth:Math.min(depth,4)});
+              for(const child of Array.from(li.children||[])) if(['UL','OL'].includes(child.tagName)) walk(child,depth+1);
+              for(const img of li.querySelectorAll('img')) walk(img,depth);
+            }return;
+          }
+          if(tag==='TABLE'){
+            const rows=Array.from(node.querySelectorAll('tr')).map(row=>Array.from(row.querySelectorAll('th,td')).map(cell=>inline(cell).trim()));
+            blocks.push({type:'table',text:'',rows});return;
+          }
+          if(tag==='PRE'){add('code',node.textContent||'');return;}
+          if(node.classList?.contains('katex')){add('formula',node.querySelector('annotation')?.textContent||node.textContent||'');return;}
+          if(/^H[1-6]$/.test(tag)){add('heading',inline(node));return;}
+          if(tag==='P'||tag==='BLOCKQUOTE'){
+            add(tag==='BLOCKQUOTE'?'quote':'text',inline(node));
+            for(const img of node.querySelectorAll('img')) walk(img,depth);
+            return;
+          }
+          if(tag==='SVG'){add('text',node.getAttribute('aria-label')||'رسم توضيحي: افتحه على الآيفون لعرضه كاملًا');return;}
+          for(const child of Array.from(node.childNodes||[])) walk(child,depth);
+        };
+        walk(root);
+        return blocks;
+      };
+      window.__aecEmit = (force=false) => {
+        const safe=!/\/(auth|login|signup)(\/|$)/.test(location.pathname)&&!document.querySelector('input[type="password"],input[type="email"],input[autocomplete="one-time-code"]');
+        if(!safe) return;
+        if(force) imageStates.clear();
+        const nodes=Array.from(document.querySelectorAll('[data-message-author-role]'));
+        let remaining=38000, truncated=false;
+        const messages=[];
+        for(let i=nodes.length-1;i>=0;i--){
+          const node=nodes[i],role=node.getAttribute('data-message-author-role');
+          if(!['user','assistant'].includes(role)) continue;
+          const blocks=blocksFor(node);
+          if(!blocks.length) continue;
+          const item={id:node.getAttribute('data-message-id')||`turn-${i}`,role,blocks};
+          const size=new TextEncoder().encode(JSON.stringify(item)).length;
+          if(size>remaining){
+            truncated=true;
+            if(messages.length===0){
+              const kept=[]; for(const block of blocks){const n=new TextEncoder().encode(JSON.stringify(block)).length;if(n>remaining)break;kept.push(block);remaining-=n;}
+              if(kept.length) messages.unshift({...item,blocks:kept});
+            }
+            break;
+          }
+          remaining-=size;messages.unshift(item);
+          if(messages.length===24){truncated=i>0;break;}
         }
-        break;
-      }
-      remaining-=size;messages.unshift(item);
-      if(messages.length===24){truncated=i>0;break;}
-    }
-    const payload={safe:true,conversation:location.pathname,title:document.title||'ChatGPT',messages,truncated,
-      streaming:!!document.querySelector('[data-testid="stop-button"],button[aria-label="Stop generating"]')};
-    const signature=JSON.stringify(payload);
-    if(force||signature!==previous){previous=signature;window.webkit.messageHandlers.aecMirror.postMessage(payload);}
-  };
-  const schedule=()=>{if(queued)return;queued=true;setTimeout(()=>{queued=false;window.__aecEmit();},800);};
-  new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true,characterData:true});
-  document.addEventListener('load',schedule,true);
-  window.__aecEmit(true);
-})();
+        const payload={safe:true,conversation:location.pathname,title:document.title||'ChatGPT',messages,truncated,
+          streaming:!!document.querySelector('[data-testid="stop-button"],button[aria-label="Stop generating"]')};
+        const signature=JSON.stringify(payload);
+        if(force||signature!==previous){previous=signature;window.webkit.messageHandlers.aecMirror.postMessage(payload);}
+      };
+      const schedule=()=>{if(queued)return;queued=true;setTimeout(()=>{queued=false;window.__aecEmit();},800);};
+      new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true,characterData:true});
+      document.addEventListener('load',schedule,true);
+      window.__aecEmit(true);
+    })();
     """#
 }
