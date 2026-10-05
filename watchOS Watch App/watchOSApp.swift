@@ -25,11 +25,9 @@ final class WatchMirror: NSObject, ObservableObject, WCSessionDelegate {
     @Published var title = "AEC Mirror"
     @Published var kind = "waiting"
     @Published var streaming = false
-    @Published var image: UIImage?
     @Published var reachable = false
     @Published var lastUpdate: Date?
     private var lastTextTimestamp = 0.0
-    private var lastImageTimestamp = 0.0
     private var session: WCSession? = WCSession.isSupported() ? WCSession.default : nil
     override init() {
         super.init(); session?.delegate = self; session?.activate()
@@ -43,12 +41,7 @@ final class WatchMirror: NSObject, ObservableObject, WCSessionDelegate {
     private func receive(_ packet: [String: Any]) {
         guard packet["version"] as? Int == 1, let nextKind = packet["kind"] as? String,
               let timestamp = packet["sentAt"] as? Double else { return }
-        if nextKind == "page" {
-            guard timestamp >= lastImageTimestamp, timestamp >= lastTextTimestamp,
-                  (kind == "live" || kind == "paused"), let jpeg = packet["image"] as? Data, jpeg.count <= 42000 else { return }
-            lastImageTimestamp = timestamp; image = UIImage(data: jpeg)
-            return
-        }
+        guard nextKind != "paused" else { return }
         guard timestamp > lastTextTimestamp else { return }
         lastTextTimestamp = timestamp
         let changedPage = title != (packet["title"] as? String ?? "ChatGPT")
@@ -57,7 +50,6 @@ final class WatchMirror: NSObject, ObservableObject, WCSessionDelegate {
         messages = (packet["messages"] as? [[String: String]] ?? []).enumerated().map {
             MirrorTurn(id: "\($0.offset)-\($0.element["id"] ?? "turn")", role: $0.element["role"] ?? "assistant", text: $0.element["text"] ?? "")
         }
-        if nextKind != "paused" && (nextKind != "live" || changedPage) { image = nil }
         lastUpdate = Date(timeIntervalSince1970: timestamp)
     }
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
@@ -74,58 +66,60 @@ final class WatchMirror: NSObject, ObservableObject, WCSessionDelegate {
 
 struct WatchMirrorScreen: View {
     @ObservedObject var mirror: WatchMirror
-    @State private var zoom = 1.0
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                Color.black
-                if let image = mirror.image {
-                    ScrollView([.horizontal, .vertical]) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: max(geometry.size.width, 1) * zoom)
-                            .frame(minHeight: geometry.size.height)
-                    }
-                    .focusable()
-                    .digitalCrownRotation(
-                        $zoom,
-                        from: 1.0,
-                        through: 3.0,
-                        by: 0.25,
-                        sensitivity: .low,
-                        isContinuous: false,
-                        isHapticFeedbackEnabled: true
-                    )
-                    .accessibilityLabel("مرآة مباشرة لشاشة الآيفون")
-                    .onTapGesture { mirror.refresh() }
-                } else {
-                    VStack(spacing: 8) {
-                        if mirror.kind == "live" {
-                            ProgressView()
-                            Text("جاري نقل الشاشة…").font(.caption)
-                        } else {
-                            Image(systemName: mirror.kind == "cleared" ? "pause.circle" : "iphone.and.arrow.forward")
-                                .font(.title2)
-                                .foregroundColor(.mint)
-                            Text(mirror.title).font(.caption).multilineTextAlignment(.center)
-                            Text("افتح AEC Mirror على الآيفون لإظهار الشاشة هنا.")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                            Button { mirror.refresh() } label: {
-                                Image(systemName: "arrow.clockwise")
-                            }.accessibilityLabel("تحديث من الآيفون")
+        VStack(spacing: 0) {
+            HStack {
+                Button { mirror.refresh() } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.mint)
+                        .frame(width: 24, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("تحديث المحادثة")
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 5)
+            .frame(height: 23)
+
+            if mirror.messages.isEmpty {
+                Spacer(minLength: 0)
+                Text("لا توجد محادثة محفوظة")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 0)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(mirror.messages) { turn in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(turn.role == "user" ? "أنت" : "ChatGPT")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(turn.role == "user" ? .mint : .secondary)
+                                    Text(turn.text)
+                                        .font(.system(size: 14))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(.horizontal, 5)
+                                .id(turn.id)
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding()
+                    .onChange(of: mirror.lastUpdate) { _ in
+                        if let latest = mirror.messages.last { proxy.scrollTo(latest.id, anchor: .bottom) }
+                    }
+                    .onAppear {
+                        if let latest = mirror.messages.last { proxy.scrollTo(latest.id, anchor: .bottom) }
+                    }
                 }
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .background(Color.black)
-            .ignoresSafeArea()
         }
-        .ignoresSafeArea()
+        .background(Color.black)
+        .ignoresSafeArea(edges: .bottom)
     }
 }
