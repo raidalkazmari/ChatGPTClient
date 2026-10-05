@@ -149,6 +149,7 @@ final class MirrorBrowser: NSObject, ObservableObject, WKNavigationDelegate, WKU
         else { status = "افتح التطبيق في الساعة" }
     }
     private func publishState(kind: String, title: String) {
+        lastFingerprint = ""
         lastText = ["kind": kind, "title": title, "messages": [[String: String]]()]
         transmit(lastText, context: true)
     }
